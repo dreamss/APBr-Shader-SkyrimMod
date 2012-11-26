@@ -1,0 +1,114 @@
+/***************************************************************************************/
+/*! \file SkyrimMod.usf
+* 
+* Port of the Skryim mod "FXAA Post Process Injector"
+* Original mod - http://skyrim.nexusmods.com/mods/131
+* 
+* Ported by: Kimiko
+*
+* Initial port - Technicolor and Tonemap only
+*
+* Usage: 
+*  Add '#include "SkyrimMod.usf"' to APBUberPostProcessBlendPixelShader.usf before the bottom closing "}".
+*  View the included APBUberPostProcessBlendPixelShader.usf if you have questions
+*  Edit SkyrimModSettings.usf for all user-configurable settings.
+*
+* You don't need to make changes to this file - See SkyrimModSettings.usf
+****************************************************************************************/
+ 
+ #include "SkyrimModSettings.usf"
+ 
+/*------------------------------------------------------------------------------
+						BLOOM - Disabled, test it later!!
+
+
+//float4 BloomPass( float4 ColorInput2,float2 Tex  )
+
+	float4 BlurColor2 =  0;
+	float MaxDistance = sqrt(8*BloomWidth);
+	float CurDistance = 0;
+	float4 Blurtemp = 0;
+	float Samplecount = 0;
+	for(float Samplex = (- 2); Samplex < 2; Samplex = Samplex + 1)
+	{
+		for(float Sampley = (- 2); Sampley < 2; Sampley = Sampley + 1)
+		{
+			CurDistance = sqrt (((Samplex * Samplex) + (Sampley*Sampley))*BloomWidth);
+			Blurtemp.rgb = tex2D(s0, float2(Tex.x +(Tex.x*Samplex*px*BloomWidth),Tex.y +(Tex.y*Sampley*py*BloomWidth)));
+			BlurColor2.rgb += lerp(Blurtemp.rgb,ColorInput2.rgb, 1 - ((MaxDistance - CurDistance)/MaxDistance));
+			Samplecount = Samplecount + 1;
+		}
+	}
+	BlurColor2.rgb = (BlurColor2.rgb / (Samplecount - (BloomPower - BloomThreshold*5)));
+	float Bloomamount = (dot(ColorInput2.xyz,float3(0.299f, 0.587f, 0.114f))) ;
+	float4	BlurColor = BlurColor2 * (BloomPower + 3);
+	BlurColor2.rgb =lerp(ColorInput2,BlurColor, Bloomamount).rgb ;	
+	BlurColor2.a = ColorInput2.a;
+	return  BlurColor2;
+------------------------------------------------------------------------------*/
+	
+	
+/*------------------------------------------------------------------------------
+						TECHNICOLOR
+------------------------------------------------------------------------------*/
+#if USE_TECHNICOLOR
+
+	#define greenfilter float4(0.30, 1.0, 0.0, 1.0)
+	#define redorangefilter float4(1.05, 0.620, 0.0, 1.0)
+	#define cyanfilter float4(0.0, 1.30, 1.0, 1.0)
+	#define magentafilter float4(1.0, 0.0, 1.05, 1.05)
+	#define yellowfilter float4(1.6, 1.6, 0.05, 1.0)
+
+	// float4 TechnicolorPass( float4 colorInput, float2 tex )
+
+	float4 tcol = OutColor;
+	float4 filtgreen = tcol * greenfilter;
+	float4 filtblue = tcol * magentafilter;
+	float4 filtred = tcol * redorangefilter;
+	float4 rednegative = float((filtred.r + filtred.g + filtred.b)/(redNegativeAmount * TechniPower));
+	float4 greennegative = float((filtgreen.r + filtgreen.g + filtgreen.b)/(greenNegativeAmount* TechniPower));
+	float4 bluenegative = float((filtblue.r+ filtblue.g + filtblue.b)/(blueNegativeAmount* TechniPower));
+	float4 redoutput = rednegative + cyanfilter;
+	float4 greenoutput = greennegative + magentafilter;
+	float4 blueoutput = bluenegative + yellowfilter;
+	float4 result = redoutput * greenoutput * blueoutput;
+	
+	OutColor = lerp(tcol, result, TechniAmount);
+	
+#endif
+	
+	
+/*------------------------------------------------------------------------------
+						TONEMAP
+------------------------------------------------------------------------------*/
+
+#if USE_TONEMAP
+
+	//float4 TonemapPass( float4 colorInput, float2 tex )
+
+	float4 color = OutColor;
+	#define BlueShift 0.00
+	#define FogColor float4(0.00, 0.00, 0.00, 0.0)
+
+	color = max(0, color - Defog * FogColor);
+	color *= pow(2.0f, Exposure);
+	color = pow(color, Gamma);
+	float4 d = color * float4(1.05f, 0.97f, 1.27f, color.a);
+	color = lerp(color, d, BlueShift);
+	float3 lumCoeff = float3(0.299, 0.587, 0.114);
+	float lum = dot (lumCoeff, color.rgb);
+	float3 blend = lum.rrr;
+	float L = min(1, max (0, 10 * (lum - 0.45)));
+	float3 result1 = 2.0f * color.rgb * blend;
+	float3 result2 = 1.0f - 2.0f * (1.0f - blend) * (1.0f - color.rgb);
+	float3 newColor = lerp(result1, result2, L);
+	float A2 = Bleach * color.rgb;
+	float3 mixRGB = A2 * newColor;
+	color.rgb += ((1.0f - A2) * mixRGB);
+	float4 middlegray = float(color.r + color.g + color.b) /3;
+	float4 diffcolor = color - middlegray;
+	color = (color + diffcolor * Saturation)/(1+(diffcolor*Saturation));
+	
+	OutColor = color;
+	
+#endif
